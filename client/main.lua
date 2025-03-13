@@ -14,7 +14,9 @@
 
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
-]] local GameBuild = GetGameBuildNumber()
+]] 
+
+local GameBuild = GetGameBuildNumber()
 Properties = {}
 CurrentId = 0
 local CurrentDrawing = {}
@@ -35,11 +37,81 @@ local GetEntityHeading = GetEntityHeading
 local IsControlJustPressed = IsControlJustPressed
 local IsControlPressed = IsControlPressed
 local DoScreenFadeOut = DoScreenFadeOut
+local Garagen = {}
+
+-- **Garagen-Daten laden**
+Citizen.CreateThread(function()
+    Citizen.Wait(1000) -- Wartezeit, um sicherzustellen, dass alle Ressourcen geladen sind
+
+    ESX.TriggerServerCallback('lunar_garage:getGarages', function(garagenDaten)
+        Garagen = garagenDaten
+        print("[Lunar Garage] Garagen-Daten erfolgreich geladen.")
+    end)
+end)
+
 function RefreshBlips()
-  for i = 1, #Blips, 1 do
-    RemoveBlip(Blips[i])
-    Blips[i] = nil
-  end
+  -- Blips aktualisieren
+end
+
+
+-- **Funktion zum Betreten der Garage**
+function EnterGarage(garageName)
+    local garage = Garagen[garageName]
+
+    if garage and garage.garageType == "standard" then
+        -- Spieler zur Garage teleportieren
+        SetEntityCoords(PlayerPedId(), garage.Entrance.x, garage.Entrance.y, garage.Entrance.z)
+        print("[Lunar Garage] Betrete Garage: " .. garageName)
+    else
+        print("[Lunar Garage] Garage nicht gefunden oder falscher Typ.")
+    end
+end
+
+-- **Events für Garagen-Ein- und Ausgang**
+RegisterNetEvent('lunar_garage:exitGarage')
+AddEventHandler('lunar_garage:exitGarage', function()
+    local ped = PlayerPedId()
+    local coords = GetEntityCoords(ped)
+
+    for k, v in pairs(Garagen) do
+        if v.Entrance.x == coords.x and v.Entrance.y == coords.y then
+            -- Spieler aus der Garage teleportieren
+            SetEntityCoords(ped, v.Exit.x, v.Exit.y, v.Exit.z)
+            print("[Lunar Garage] Verlasse Garage: " .. k)
+            break
+        end
+    end
+end)
+
+RegisterNetEvent('lunar_garage:enterGarage')
+AddEventHandler('lunar_garage:enterGarage', function(garageName)
+    EnterGarage(garageName)
+end)
+
+-- **Marker für Garagen anzeigen**
+Citizen.CreateThread(function()
+    while true do
+        Citizen.Wait(0)
+        local ped = PlayerPedId()
+        local coords = GetEntityCoords(ped)
+
+        for _, garage in pairs(Garagen) do
+            if garage.garageType == "standard" then
+                DrawMarker(1, garage.Entrance.x, garage.Entrance.y, garage.Entrance.z - 1.0, 
+                    0, 0, 0, 0, 0, 0, 
+                    1.5, 1.5, 1.5, 
+                    255, 0, 0, 150, false, false, 2, true, nil, nil, false)
+                
+                if Vdist(coords.x, coords.y, coords.z, garage.Entrance.x, garage.Entrance.y, garage.Entrance.z) < 1.5 then
+                    ESX.ShowHelpNotification("Drücke ~INPUT_CONTEXT~, um die Garage zu betreten.")
+                    if IsControlJustReleased(0, 38) then
+                        TriggerEvent('lunar_garage:enterGarage', garage.Name)
+                    end
+                end
+            end
+        end
+    end
+end)
 
   for k, v in pairs(Properties) do
     if v.Owned and Config.OwnedBlips then
@@ -90,7 +162,7 @@ function RefreshBlips()
     EndTextCommandSetBlipName(Blip)
     Blips[#Blips + 1] = Blip
   end
-end
+
 
 RegisterNetEvent("esx_property:syncProperties", function(properties, lastProperty)
   while not ESX.PlayerLoaded and not ESX.PlayerData.identifier do
@@ -1517,3 +1589,59 @@ RegisterNetEvent("esx_property:AdminMenu", function()
   end)
 end)
 
+
+---------------------------------
+---------------------------------
+
+RegisterNetEvent('esx_property:openWardrobe')
+AddEventHandler('esx_property:openWardrobe', function()
+    TriggerEvent('bostra-appearance:openOutfitMenuFromExternal')
+end)
+
+RegisterNetEvent('esx_property:openOutfitMenu')
+AddEventHandler('esx_property:openOutfitMenu', function()
+    ESX.TriggerServerCallback('bostra-appearance:openOutfitMenuFromExternal', function(outfits)
+        local elements = {}
+
+        for _, outfit in ipairs(outfits) do
+            table.insert(elements, {
+                label = outfit.name,
+                outfitData = outfit.data
+            })
+        end
+
+        ESX.UI.Menu.Open('default', GetCurrentResourceName(), 'outfit_menu', {
+            title = 'Kleiderschrank',
+            align = 'top-left',
+            elements = elements
+        }, function(data, menu)
+            local outfit = data.current.outfitData
+
+            -- Wendet das Outfit über bostra-appearance an
+            TriggerEvent('bostra-appearance:openOutfitMenuFromExternal')
+
+            ESX.ShowNotification('Outfit wurde angezogen!')
+        end, function(data, menu)
+            menu.close()
+        end)
+    end)
+end)
+--      Erstmal deaktiviert lassen
+--Citizen.CreateThread(function()
+--    local playerPed = PlayerPedId()
+--    local playerCoords = GetEntityCoords(playerPed)
+
+--    local closetCoords = vector3(1122.1201, -3162.3164, -36.8705) -- Ändere diese Koordinaten zum Kleiderschrank
+--
+--    while true do
+--        Citizen.Wait(0)
+--        local distance = #(playerCoords - closetCoords)
+--
+--        if distance < 1.5 then
+--            ESX.ShowHelpNotification("Drücke ~INPUT_CONTEXT~, um den Kleiderschrank zu öffnen.") -- "E" Standard
+--            if IsControlJustReleased(0, 38) then
+--                TriggerEvent('bostra-appearance:openOutfitMenuFromExternal')
+--            end
+--        end
+--    end
+--end)
