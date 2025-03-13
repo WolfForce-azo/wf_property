@@ -777,7 +777,29 @@ function StoreVehicle(PropertyId)
   local Vehicle = GetVehiclePedIsIn(ESX.PlayerData.ped, false)
   if Vehicle then
     local VehProperties = ESX.Game.GetVehicleProperties(Vehicle)
-    VehProperties.DisplayName = GetLabelText(GetDisplayNameFromVehicleModel(VehProperties.model))
+    
+    -- Ermitteln des Fahrzeugnamens
+    local spawnName
+    
+    -- Überprüfe, ob es sich um einen Hash handelt oder ein String (Spawnname)
+    if type(VehProperties.model) == "number" then
+        -- Modellhash in Spawnname (Code) umwandeln
+        spawnName = GetDisplayNameFromVehicleModel(VehProperties.model)
+    else
+        -- Falls bereits ein String vorliegt (Spawnname)
+        spawnName = VehProperties.model
+    end
+
+    -- Versuche, den Fahrzeugnamen zu holen. Falls "NULL" zurückgegeben wird, benutze den Spawnnamen.
+    local displayName = GetLabelText(spawnName)
+    if not displayName or displayName == "NULL" then
+        displayName = spawnName  -- Fallback: Spawnname anzeigen
+    end
+
+    -- Setze den richtigen Fahrzeugnamen in die Eigenschaften
+    VehProperties.DisplayName = displayName
+    
+    -- Fahrzeug speichern
     ESX.TriggerServerCallback("esx_property:StoreVehicle", function(result)
       if result then
         SetEntityAsMissionEntity(Vehicle, true, true)
@@ -791,6 +813,7 @@ function StoreVehicle(PropertyId)
     end, PropertyId, VehProperties)
   end
 end
+
 
 function AccessGarage(PropertyId)
   ESX.TriggerServerCallback("esx_property:AccessGarage", function(Vehicles)
@@ -863,22 +886,44 @@ CreateThread(function()
               DrawMarker(36, Garage, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.5, 1.5, 1.5, 50, 200, 50, 200, false, false, 2, true, nil, nil, false)
               if #(Coords - Garage) < 3.0 then
                 nearby = true
-                if GetVehiclePedIsUsing(ESX.PlayerData.ped) ~= 0 then
-                  local veh = GetVehiclePedIsIn(ESX.PlayerData.ped, false)
-                  local vehmodel = GetEntityModel(veh)
-                  local DisplayName = GetLabelText(GetDisplayNameFromVehicleModel(vehmodel))
-                  if not CurrentDrawing.Showing or CurrentDrawing.Name ~= DisplayName then
-                    CurrentDrawing.Name = DisplayName
-                    CurrentDrawing.Showing = true
-                    ESX.TextUI(TranslateCap("store_textui", DisplayName))
-                  end
-                else
-                  if not CurrentDrawing.Showing or CurrentDrawing.Name ~= "Garage" then
-                    CurrentDrawing.Name = "Garage"
-                    CurrentDrawing.Showing = true
-                    ESX.TextUI(TranslateCap("access_textui", "garage"))
-                  end
-                end
+if GetVehiclePedIsUsing(ESX.PlayerData.ped) ~= 0 then
+    local veh = GetVehiclePedIsIn(ESX.PlayerData.ped, false)
+    local vehmodel = GetEntityModel(veh)
+
+    -- Ermitteln des Fahrzeugnamens
+    local spawnName
+    
+    -- Überprüfe, ob es sich um einen Hash handelt oder ein String (Spawnname)
+    if type(vehmodel) == "number" then
+        -- Modellhash in Spawnname (Code) umwandeln
+        spawnName = GetDisplayNameFromVehicleModel(vehmodel)
+    else
+        -- Falls bereits ein String vorliegt (Spawnname)
+        spawnName = vehmodel
+    end
+
+    -- Versuche, den Fahrzeugnamen zu holen. Falls "NULL" zurückgegeben wird, benutze den Spawnnamen.
+    local displayName = GetLabelText(spawnName)
+    if not displayName or displayName == "NULL" then
+        displayName = spawnName  -- Fallback: Spawnname anzeigen
+    end
+
+    -- Anzeige aktualisieren
+    if not CurrentDrawing.Showing or CurrentDrawing.Name ~= displayName then
+        CurrentDrawing.Name = displayName
+        CurrentDrawing.Showing = true
+        ESX.TextUI(TranslateCap("store_textui", displayName))
+    end
+else
+    -- Wenn kein Fahrzeug genutzt wird, "Garage"-Text anzeigen
+    if not CurrentDrawing.Showing or CurrentDrawing.Name ~= "Garage" then
+        CurrentDrawing.Name = "Garage"
+        CurrentDrawing.Showing = true
+        ESX.TextUI(TranslateCap("access_textui", "garage"))
+    end
+end
+
+
                 if IsControlJustPressed(0, 38) then
                   if GetVehiclePedIsUsing(ESX.PlayerData.ped) ~= 0 then
                     StoreVehicle(i)
@@ -900,6 +945,7 @@ CreateThread(function()
     Wait(Sleep)
   end
 end)
+
 
 function OpenPMQuickMenu(Action)
   if Action == "Entrance" then
@@ -1626,12 +1672,12 @@ AddEventHandler('esx_property:openOutfitMenu', function()
         end)
     end)
 end)
---      Erstmal deaktiviert lassen
+
 --Citizen.CreateThread(function()
 --    local playerPed = PlayerPedId()
 --    local playerCoords = GetEntityCoords(playerPed)
 
---    local closetCoords = vector3(1122.1201, -3162.3164, -36.8705) -- Ändere diese Koordinaten zum Kleiderschrank
+--    local closetCoords = vector3(1122.1201, -3162.3164, -36.8705) -- Ändere diese Koordinaten zu deinem Kleiderschrank
 --
 --    while true do
 --        Citizen.Wait(0)
