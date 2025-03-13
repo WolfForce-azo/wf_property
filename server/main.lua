@@ -716,21 +716,23 @@ ESX.RegisterServerCallback("esx_property:SetWardrobePosition", function(source, 
   cb(IsPlayerAdmin(source, "EditInteriorPositions") or (Property.Owner == xPlayer.identifier or Properties[PropertyId].Keys[xPlayer.identifier]))
 end)
 
-ESX.RegisterServerCallback('esx_property:getPlayerDressing', function(source, cb)
-  local xPlayer = ESX.GetPlayerFromId(source)
 
-  TriggerEvent('esx_datastore:getDataStore', 'property', xPlayer.identifier, function(store)
-    local count = store.count('dressing')
-    local labels = {}
+    -- Holt alle gespeicherten Outfits des Spielers aus der Datenbank
+ESX.RegisterServerCallback("esx_property:getPlayerDressing", function(source, cb)
+    local xPlayer = ESX.GetPlayerFromId(source)
 
-    for i = 1, count, 1 do
-      local entry = store.get('dressing', i)
-      table.insert(labels, entry.label)
-    end
+    MySQL.query("SELECT outfitname FROM player_outfits WHERE citizenid = ?", {xPlayer.identifier}, function(results)
+        local outfits = {}
 
-    cb(labels)
-  end)
+        for _, v in ipairs(results) do
+            table.insert(outfits, v.outfitname) -- Nur den Namen des Outfits speichern
+        end
+
+        cb(outfits)
+    end)
 end)
+
+
 
 ESX.RegisterServerCallback('esx_property:GetInsidePlayers', function(source, cb, property)
   local Property = Properties[property]
@@ -923,14 +925,28 @@ ESX.RegisterServerCallback('esx_property:CanOpenFurniture', function(source, cb,
   cb(Property.Owner == xPlayer.identifier or (Property.Keys and Properties[property].Keys[xPlayer.identifier]))
 end)
 
-ESX.RegisterServerCallback('esx_property:getPlayerOutfit', function(source, cb, num)
-  local xPlayer = ESX.GetPlayerFromId(source)
 
-  TriggerEvent('esx_datastore:getDataStore', 'property', xPlayer.identifier, function(store)
-    local outfit = store.get('dressing', num)
-    cb(outfit.skin)
-  end)
+ESX.RegisterServerCallback('esx_property:getPlayerOutfit', function(source, cb, outfitId)
+    local xPlayer = ESX.GetPlayerFromId(source)
+
+    -- Holt das Outfit mit der passenden ID aus der Datenbank
+    local result = MySQL.Sync.fetchAll('SELECT ped, components, props FROM outfits WHERE identifier = @identifier AND id = @id', {
+        ['@identifier'] = xPlayer.identifier,
+        ['@id'] = outfitId
+    })
+
+    if result and result[1] then
+        local outfit = {
+            model = result[1].ped,
+            components = json.decode(result[1].components),
+            props = json.decode(result[1].props)
+        }
+        cb(outfit) -- JSON in Lua-Tabelle umwandeln und zurückgeben
+    else
+        cb(nil)
+    end
 end)
+
 
 -- Player Management
 if PM.Enabled then
@@ -964,6 +980,56 @@ end
 -- Enter/leave Events
 
 RegisterNetEvent('esx_property:enter', function(PropertyId)
+
+-- Event zum Abrufen des Garagen-Typs und Speichern
+RegisterNetEvent("esx_property:getGarageType")
+AddEventHandler("esx_property:getGarageType", function(propertyName, cb)
+    local garageType = "standard" -- Standard Garage-Typ
+    for i=1, #Properties, 1 do
+        if Properties[i].Name == propertyName then
+            garageType = Properties[i].garageType or "standard"
+            break
+        end
+    end
+    cb(garageType)
+end)
+
+-- Event zum Speichern eines Fahrzeugs in der lunar_garage
+RegisterNetEvent("esx_property:storeVehicle")
+AddEventHandler("esx_property:storeVehicle", function(propertyName, vehicleData)
+    local src = source
+    local xPlayer = ESX.GetPlayerFromId(src)
+
+    if xPlayer then
+        MySQL.Async.execute("INSERT INTO owned_vehicles (owner, vehicle, plate, stored) VALUES (@owner, @vehicle, @plate, @stored)", {
+            ["@owner"] = xPlayer.identifier,
+            ["@vehicle"] = json.encode(vehicleData),
+            ["@plate"] = vehicleData.plate,
+            ["@stored"] = 1
+        })
+    end
+end)
+
+-- Event zum Abrufen der gespeicherten Fahrzeuge aus der Garage
+RegisterNetEvent("esx_property:getStoredVehicles")
+AddEventHandler("esx_property:getStoredVehicles", function(cb)
+    local src = source
+    local xPlayer = ESX.GetPlayerFromId(src)
+
+    if xPlayer then
+        MySQL.Async.fetchAll("SELECT vehicle FROM owned_vehicles WHERE owner = @owner AND stored = 1", {
+            ["@owner"] = xPlayer.identifier
+        }, function(result)
+            local vehicles = {}
+
+            for i=1, #result, 1 do
+                table.insert(vehicles, json.decode(result[i].vehicle))
+            end
+
+            cb(vehicles)
+        end)
+    end
+end)
   local player = source
   local PlayerPed = GetPlayerPed(player)
   local xPlayer = ESX.GetPlayerFromId(player)
@@ -1188,4 +1254,66 @@ end)
 exports("ForceSaveProperties", function()
   local ExecutingResource = GetInvokingResource()
   PropertySave(TranslateCap("forced_save", ExecutingResource))
+end)
+
+
+--------------------------- NEU
+
+
+
+RegisterNetEvent("esx_property:saveOutfit")
+AddEventHandler("esx_property:saveOutfit", function()
+    ESX.UI.Menu.Open("dialog", GetCurrentResourceName(), "save_outfit", {
+        title = "👕 Outfit Namen eingeben"
+    }, function(data, menu)
+        local outfitName = data.value
+        if outfitName and outfitName ~= "" then
+            local appearance = exports.bostra_appearance:getPlayerAppearance()
+            
+            if appearance then
+                print("DEBUG: Outfit speichern:", json.encode(appearance)) -- Debugging in F8 Konsole
+                TriggerServerEvent("bostra_appearance:saveOutfit", outfitName, appearance)
+                ESX.ShowNotification("✅ Outfit gespeichert!")
+            else
+                ESX.ShowNotification("❌ Fehler beim Speichern des Outfits!")
+            end
+        else
+            ESX.ShowNotification("❌ Ungültiger Name!")
+        end
+        menu.close()
+    end, function(data, menu)
+        menu.close()
+    end)
+end)
+
+ESX.RegisterServerCallback("bostra_appearance:getOutfits", function(source, cb)
+    local xPlayer = ESX.GetPlayerFromId(source)
+
+    if not xPlayer then
+        print("^1[ERROR] Spieler nicht gefunden für bostra_appearance:getOutfits!^7")
+        cb({})
+        return
+    end
+
+    print("^2[DEBUG] Anfrage für Outfits von Spieler: " .. xPlayer.identifier .. "^7")
+
+    MySQL.query("SELECT outfitname, model, components, props FROM player_outfits WHERE citizenid = ?", {xPlayer.identifier}, function(results)
+        local outfits = {}
+
+        if results and #results > 0 then
+            for _, v in ipairs(results) do
+                table.insert(outfits, {
+                    name = v.outfitname,
+                    model = json.decode(v.model or "{}"),
+                    components = json.decode(v.components or "{}"),
+                    props = json.decode(v.props or "{}")
+                })
+            end
+            print("^2[DEBUG] Geladene Outfits für " .. xPlayer.identifier .. ": " .. json.encode(outfits) .. "^7")
+        else
+            print("^3[WARN] Keine Outfits gefunden für " .. xPlayer.identifier .. "^7")
+        end
+
+        cb(outfits)
+    end)
 end)
